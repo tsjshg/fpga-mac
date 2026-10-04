@@ -1,0 +1,9 @@
+.DS_Store
+__pycache__/
+# 試しに new-project.sh で作ったものや、ひな形の中でビルドした残り
+boards/*/template/hw/prj_*/
+boards/*/template/hw/out/
+boards/*/template/hw/.Xil/
+boards/*/template/hw/*.log
+boards/*/template/hw/*.jou
+boards/*/template/hw/sim/work/
