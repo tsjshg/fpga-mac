@@ -18,6 +18,12 @@
 - **Vivado のフォルダは内蔵ディスクに置く。** bind mount で見せるので、UNIX の権限を持てないファイルシステム（exFAT など）では問題が出ます。Docker 自体のディスクイメージは外付けでも動いています。その場合は、外付けがマウントされていることを確かめてから Docker を起動してください。
 - **`open_run` の後は `get_property STATS.*` が空になる。** 警告が出るだけで値は返りません。WNS は `open_run` の前に読み、資源は `report_utilization -file` の出力から拾います。これに気づかず、DSP の数を見落としかけました。
 
+## x86-64 の Linux の上の Vivado
+
+- **vivado-on-silicon-mac が入れたものは、そのまま Linux のマシンへ写せる。** 中身はふつうの x86-64 Linux 用です。インストール先の絶対パスが入っているのは、設定用のスクリプト（`settings64.sh`・`.settings64-Vivado.sh` とそれぞれの `.csh` 版）だけでした。`settings64.sh` は DocNav・Model_Composer・Vitis_HLS も読み込みます。それらを写していなければ行ごと消してください。消さないと読み込みが失敗し、後ろに `&& vivado` と続けていても実行されません。
+- **Ubuntu 24.04 には `libtinfo.so.5` が無い。** Vivado 2024.1 が `couldn't load file "librdi_commontasks.so": libtinfo.so.5` で止まり、xsim も同じです。Vivado が同梱しているのは RHEL 9 と SUSE 用だけでした。22.04 のアーカイブから `libtinfo5` と `libncursesw5` を入れれば直ります。なお、Vivado の `LD_LIBRARY_PATH` を設定せずに `ldd` を掛けると、Vivado 自身のライブラリが何十個も「無い」と出ます。これは見かけだけなので、システムのライブラリだけを見てください。
+- **ネイティブの Linux では `LD_PRELOAD` は要らない。** あれは Rosetta 向けの回避策で、Linux 向けではありません。
+
 ## Tcl とブロックデザイン
 
 - **ボードファイルが無いボードは、部品番号と PS の明示設定で作る。** PYNQ-Z1 は Digilent にも PYNQ にもボードファイルがありません。PYNQ 公式の `base.tcl` の PS7 設定（533 項目）をそのまま使うのが正解でした。

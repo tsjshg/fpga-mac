@@ -4,9 +4,9 @@
 
 Apple Silicon の Mac で FPGA の回路を作り、Zynq のボードで動かすまでを、すべてコマンドラインで行うための道具一式です。
 
-Vivado は x86 Linux でしか動きません。ここでは Docker と Rosetta 2 の上で、GUI なしの batch モードで動かします。このリポジトリには、そのまわりで要るものを置いています。
+Vivado が動くのは x86-64 の Linux と Windows で、macOS では動きません。ここでは GUI なしの batch モードで、Mac の上の Docker と Rosetta 2 の中で動かすか、Mac からビルドを送る x86-64 の Linux マシンで動かします。このリポジトリには、そのまわりで要るものを置いています。
 
-- `vivado.sh`: プロジェクトごとにコンテナを立て、その中で Tcl のビルドや xsim を走らせる
+- `vivado.sh`: プロジェクトの Tcl のビルドや xsim を、Docker の中・Linux の上・SSH 越しの Linux のビルド用マシンのどれかで走らせる
 - `new-project.sh`: ボードのひな形から新しいプロジェクトを作る。ひな形はそのままでシミュレーション・ビルド・実機での実行まで通る
 - ボードごとのファイル: PS の設定、ボードへ送って動かすスクリプト、ひな形
 - [踏んだ罠と対処](docs/lessons_ja.md): Docker の中の Vivado、タイミング、AXI、DMA、PYNQ、それに自分をだまさない測り方
@@ -85,21 +85,60 @@ export PYNQ_HOST=xilinx@192.168.2.99        # 自分のボード
 
 ## `vivado.sh`
 
+`vivado.sh` は、Vivado を次の3通りのどれかで動かします。どれになるかは自動で決まります。
+
+| 動かし方 | いつ | どうやって |
+|---|---|---|
+| docker | macOS の上（既定） | Rosetta 2 の上の Docker コンテナの中で |
+| local | x86-64 の Linux の上 | そのまま |
+| remote | `VIVADO_HOST` を設定したとき | 今いる場所を SSH で x86-64 の Linux に送ってそこで動かし、`out/` を持ち帰る |
+
 | コマンド | 内容 |
 |---|---|
-| `vivado.sh start` | コンテナ `vivado_<プロジェクト名>` を立て、プロジェクトを `/work` に載せる |
+| `vivado.sh start` | docker: コンテナ `vivado_<プロジェクト名>` を立て、プロジェクトを `/work` に載せる。local・remote: Vivado が起動するか確かめる |
 | `vivado.sh build X.tcl 引数…` | `vivado -mode batch -source X.tcl -tclargs 引数…` |
 | `vivado.sh sh 'コマンド'` | Vivado の環境を読み込んだうえでシェルのコマンドを実行（xsim など） |
-| `vivado.sh status` | 動いている `vivado_*` コンテナの一覧 |
-| `vivado.sh stop` | このプロジェクトのコンテナを止める |
+| `vivado.sh status` | docker: 動いている `vivado_*` コンテナの一覧。それ以外: どこで動かすか |
+| `vivado.sh stop` | docker: このプロジェクトのコンテナを止める |
 
-「プロジェクト」は、今いる場所の git リポジトリのてっぺんです（git の外なら今いる場所）。コマンドはコンテナの中の対応する場所で走るので、`hw/` から叩けば Tcl の相対パスがそのまま通ります。コンテナはプロジェクトごとに別なので、いくつ同時に動かしても構いません。VNC は使わず、vivado-on-silicon-mac の GUI 用コンテナとも干渉しません。
+「プロジェクト」は、今いる場所の git リポジトリのてっぺんです（git の外なら今いる場所）。
+
+- **docker**: コマンドはコンテナの中の対応する場所で走るので、`hw/` から叩けば Tcl の相対パスがそのまま通ります。コンテナはプロジェクトごとに別なので、いくつ同時に動かしても構いません。VNC は使わず、vivado-on-silicon-mac の GUI 用コンテナとも干渉しません。
+- **remote**: 今いる場所の中身を、送り先の `~/fpga-work/<プロジェクト名>/<てっぺんからの相対パス>/` に rsync で写します。`.git/`・`prj_*/`・`.Xil/`・`sim/work/` は送りません。持ち帰るのは `out/` だけです。`hw/` のように、ビルドに要るものが全部入った場所から叩いてください。
 
 | 環境変数 | 既定値 | |
 |---|---|---|
-| `VIVADO_MAC` | `~/tools/vivado-on-silicon-mac-main` | `Xilinx/Vivado/<版>` が入っているフォルダ |
 | `VIVADO_VER` | `2024.1` | |
-| `FPGA_ROOT` | git のてっぺん、または今いる場所 | `/work` に載せるフォルダ |
+| `VIVADO_MAC` | `~/tools/vivado-on-silicon-mac-main` | docker: `Xilinx/Vivado/<版>` が入っているフォルダ |
+| `VIVADO_DIR` | `/tools/Xilinx` | local・remote: Linux のマシンでの Xilinx のインストール先 |
+| `VIVADO_HOST` | | remote: `user@host` |
+| `VIVADO_SSH_KEY` | | remote: 鍵ファイル（`~/.ssh/config` に書いていないとき） |
+| `FPGA_ROOT` | git のてっぺん、または今いる場所 | プロジェクトのてっぺん |
+
+### x86-64 の Linux でビルドする
+
+Vivado は x86-64 の Linux ならそのまま動き、Rosetta も Docker も要りません。古い Intel の Mac mini に Ubuntu を入れれば、Apple Silicon の Mac からビルドを送る先として使えます。
+
+1. そのマシンに Vivado 2024.1 を入れます。vivado-on-silicon-mac が入れた中身はふつうの x86-64 Linux 用なので、Mac から `Xilinx/Vivado/2024.1` を写しても構いません（32 GB。ギガビットの有線 LAN で 10 分ほど）。無償版なのでライセンスファイルは要りません。写したあとは、次の2つをしてください。
+   - `settings64.sh`・`.settings64-Vivado.sh` と、それぞれの `.csh` 版で、`/home/user/Xilinx` を新しい場所に書き換える
+   - DocNav・Model_Composer・Vitis_HLS を写していなければ、`settings64.sh` からそれらを読み込む行を消す
+2. **Ubuntu 24.04 では**、Vivado 2024.1 が使う `libtinfo.so.5` がもう入っていません。Vivado 本体も xsim も `libtinfo.so.5: cannot open shared object file` で止まります。22.04 のパッケージを Ubuntu のアーカイブから入れてください。
+
+   ```bash
+   cd /tmp && wget http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.3_amd64.deb http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libncursesw5_6.3-2ubuntu0.3_amd64.deb
+   sudo apt install /tmp/libtinfo5_6.3-2ubuntu0.3_amd64.deb /tmp/libncursesw5_6.3-2ubuntu0.3_amd64.deb
+   ```
+
+3. Mac から次のように叩きます。
+
+   ```bash
+   export VIVADO_HOST=builder@192.168.0.50   # 自分の Linux のマシン
+   cd my-circuit/hw
+   vivado.sh start                           # Vivado の版が出る
+   vivado.sh build build.tcl all 100         # → Mac の out/ にできる
+   ```
+
+   PYNQ-Z1 のひな形を 100 MHz でビルドした実測では、2018 年の Mac mini（Core i7-8700B・32 GB・Ubuntu 24.04）が送り迎え込みで 6 分 37 秒でした。M4 の Mac の Docker では約 9 分です。
 
 ## ボードを足すとき
 
@@ -114,7 +153,7 @@ export PYNQ_HOST=xilinx@192.168.2.99        # 自分のボード
 ## ファイル構成
 
 ```
-vivado.sh                 Docker の中の Vivado: start / build / sh / status / stop
+vivado.sh                 Vivado を Docker の中で / Linux で / 別の Linux マシンで
 new-project.sh            boards/<ボード>/template から新しいプロジェクトを作る
 docs/lessons.md           踏んだ罠と対処（英語）
 docs/lessons_ja.md        同じものの日本語版

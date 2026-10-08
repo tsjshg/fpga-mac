@@ -28,6 +28,20 @@ measured on a PYNQ-Z1 (XC7Z020 -1) unless noted.
   before `open_run`, and take resource counts from `report_utilization -file`. Missing this
   nearly hid a DSP count.
 
+## Vivado on x86-64 Linux
+
+- **An install made by vivado-on-silicon-mac can be copied to a Linux machine as is.** It is an
+  ordinary x86-64 Linux install. Only the setting scripts (`settings64.sh`, `.settings64-Vivado.sh`
+  and the `.csh` versions) hold the absolute install path. `settings64.sh` also sources DocNav,
+  Model_Composer and Vitis_HLS. If those weren't copied, remove the lines, or sourcing fails and a
+  following `&& vivado` never runs.
+- **Ubuntu 24.04 lacks `libtinfo.so.5`.** Vivado 2024.1 stops with
+  `couldn't load file "librdi_commontasks.so": libtinfo.so.5`, and xsim too. Vivado bundles the
+  library only for RHEL 9 and SUSE. Installing `libtinfo5` and `libncursesw5` from the 22.04
+  archive fixes it. `ldd` without Vivado's `LD_LIBRARY_PATH` reports dozens of Vivado's own
+  libraries as missing. That is noise; look for system libraries only.
+- **LD_PRELOAD is not needed natively.** It works around Rosetta, not Linux.
+
 ## Tcl and block designs
 
 - **For a board without a board file, use the part number and configure the PS explicitly.**

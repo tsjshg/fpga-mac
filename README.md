@@ -5,10 +5,12 @@
 Build FPGA circuits on an Apple Silicon Mac and run them on a Zynq board, entirely from the
 command line.
 
-Vivado only runs on x86 Linux. Here it runs in Docker under Rosetta 2, in batch mode, with no
-GUI. This repository holds what you need around it:
+Vivado runs on x86-64 Linux and Windows, not on macOS. Here it runs in batch mode, with no GUI,
+either in Docker under Rosetta 2 on the Mac itself or on an x86-64 Linux machine that the Mac sends
+builds to. This repository holds what you need around it:
 
-- `vivado.sh`, which starts a container for your project and runs Tcl builds and xsim in it
+- `vivado.sh`, which runs Tcl builds and xsim for your project in Docker, locally on Linux, or
+  on a Linux build machine over SSH
 - `new-project.sh`, which starts a project from a board template that already builds,
   simulates and runs
 - per-board files: the PS configuration, a deploy/run script, and the template
@@ -97,24 +99,72 @@ export PYNQ_HOST=xilinx@192.168.2.99        # your board
 
 ## `vivado.sh`
 
+`vivado.sh` runs Vivado in one of three ways, chosen automatically:
+
+| Mode | When | How |
+|---|---|---|
+| docker | On macOS (default) | In a Docker container under Rosetta 2 |
+| local | On x86-64 Linux | Directly |
+| remote | When `VIVADO_HOST` is set | Sends the current directory to an x86-64 Linux machine over SSH, runs there, and brings `out/` back |
+
 | Command | What it does |
 |---|---|
-| `vivado.sh start` | Starts container `vivado_<project>` with the project mounted at `/work` |
+| `vivado.sh start` | docker: starts container `vivado_<project>` with the project mounted at `/work`. local/remote: checks that Vivado runs |
 | `vivado.sh build X.tcl ARGS…` | `vivado -mode batch -source X.tcl -tclargs ARGS…` |
 | `vivado.sh sh 'COMMAND'` | Runs a shell command with Vivado's environment (xsim, scripts) |
-| `vivado.sh status` | Lists running `vivado_*` containers |
-| `vivado.sh stop` | Stops this project's container |
+| `vivado.sh status` | docker: lists running `vivado_*` containers. Otherwise: shows where it runs |
+| `vivado.sh stop` | docker: stops this project's container |
 
 The project is the top of the git repository you are in, or the current directory outside git.
-Commands run in the matching directory inside the container, so relative paths in Tcl work
-when you call it from `hw/`. Each project gets its own container, so several can run at once.
-It needs no VNC and does not interfere with the GUI container from vivado-on-silicon-mac.
+
+- **docker:** commands run in the matching directory inside the container, so relative paths in
+  Tcl work when you call it from `hw/`. Each project gets its own container, so several can run at
+  once. It needs no VNC and does not interfere with the GUI container from vivado-on-silicon-mac.
+- **remote:** the current directory is copied with rsync to
+  `~/fpga-work/<project>/<path from the top>/` on the remote machine, without `.git/`, `prj_*/`,
+  `.Xil/` and `sim/work/`. Only `out/` comes back. Call it from a directory that holds everything the
+  build needs, such as `hw/`.
 
 | Variable | Default | |
 |---|---|---|
-| `VIVADO_MAC` | `~/tools/vivado-on-silicon-mac-main` | Folder holding `Xilinx/Vivado/<version>` |
 | `VIVADO_VER` | `2024.1` | |
-| `FPGA_ROOT` | git top or current directory | Folder to mount at `/work` |
+| `VIVADO_MAC` | `~/tools/vivado-on-silicon-mac-main` | docker: folder holding `Xilinx/Vivado/<version>` |
+| `VIVADO_DIR` | `/tools/Xilinx` | local, remote: Xilinx install folder on the Linux machine |
+| `VIVADO_HOST` | | remote: `user@host` |
+| `VIVADO_SSH_KEY` | | remote: key file, if it is not in `~/.ssh/config` |
+| `FPGA_ROOT` | git top or current directory | The project's top folder |
+
+### Building on an x86-64 Linux machine
+
+Vivado runs natively on x86-64 Linux, without Rosetta or Docker. An old Intel Mac mini with Ubuntu
+works well as a build machine that the Apple Silicon Mac sends builds to.
+
+1. Install Vivado 2024.1 on it. The Linux files that vivado-on-silicon-mac installed are ordinary
+   x86-64 Linux binaries, so you can also copy `Xilinx/Vivado/2024.1` from the Mac (32 GB, about
+   10 minutes over gigabit Ethernet). The free edition needs no license file. After copying,
+   replace `/home/user/Xilinx` with the new location in `settings64.sh`,
+   `.settings64-Vivado.sh` and their `.csh` versions, and remove the lines in `settings64.sh` that
+   source DocNav, Model_Composer and Vitis_HLS if you didn't copy them.
+2. **On Ubuntu 24.04**, Vivado 2024.1 needs `libtinfo.so.5`, which 24.04 no longer ships. Both
+   Vivado itself and xsim stop with `libtinfo.so.5: cannot open shared object file`. Install the
+   22.04 packages from Ubuntu's archive:
+
+   ```bash
+   cd /tmp && wget http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.3_amd64.deb http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libncursesw5_6.3-2ubuntu0.3_amd64.deb
+   sudo apt install /tmp/libtinfo5_6.3-2ubuntu0.3_amd64.deb /tmp/libncursesw5_6.3-2ubuntu0.3_amd64.deb
+   ```
+
+3. From the Mac:
+
+   ```bash
+   export VIVADO_HOST=builder@192.168.0.50   # your Linux machine
+   cd my-circuit/hw
+   vivado.sh start                           # prints the Vivado version
+   vivado.sh build build.tcl all 100         # → out/ on the Mac
+   ```
+
+   Measured with the PYNQ-Z1 template at 100 MHz: a 2018 Mac mini (Core i7-8700B, 32 GB, Ubuntu
+   24.04) took 6 min 37 s including the copy there and back. Docker on an M4 Mac took about 9 min.
 
 ## Adding a board
 
@@ -128,7 +178,7 @@ It needs no VNC and does not interfere with the GUI container from vivado-on-sil
 ## Repository layout
 
 ```
-vivado.sh                 Vivado in Docker: start / build / sh / status / stop
+vivado.sh                 Vivado in Docker, on Linux, or on a remote Linux machine
 new-project.sh            new project from boards/<board>/template
 docs/lessons.md           what went wrong and what to do instead (English)
 docs/lessons_ja.md        the same in Japanese
